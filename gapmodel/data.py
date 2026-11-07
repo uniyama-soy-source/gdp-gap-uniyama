@@ -76,6 +76,8 @@ def load_published() -> dict:
     out = {}
     b = pd.read_csv(PUB / "boj_gap.csv")
     out["boj"] = b.set_index(pd.PeriodIndex(b.q, freq="Q")).drop(columns="q")
+    if (PUB / "boj_potential.csv").exists():   # 日銀の潜在成長率と寄与度（年度半期、前年比）
+        out["boj_pot"] = pd.read_csv(PUB / "boj_potential.csv").set_index(["FY", "H"])
     rows = []
     for r in (PUB / "cao_q_raw.txt").read_text().strip().strip(";").split(";"):
         p = r.split(",")

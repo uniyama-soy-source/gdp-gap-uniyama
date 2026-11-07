@@ -607,3 +607,24 @@ def parse_estat_values(js: dict, tab_map: dict[str, str]) -> dict[str, pd.Series
             if not np.isnan(x):
                 out[key][pd.Period(f"{m.group(1)}-{int(m.group(2)):02d}", "M")] = x
     return {k: pd.Series(d).sort_index() for k, d in out.items()}
+
+
+def parse_boj_gap_xlsx(b: bytes) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """日銀「需給ギャップと潜在成長率」gap.xlsx →
+    (四半期：需給ギャップ・資本投入ギャップ・労働投入ギャップ, 年度半期：潜在成長率と寄与度)。"""
+    wb = _xlsx(b)
+    q = {}
+    for r in wb["data1"].iter_rows(values_only=True):
+        m = re.match(r"(\d{4})\.(\d)Q", nfkc(r[0]) if r and r[0] else "")
+        if m:
+            q[pd.Period(f"{m.group(1)}Q{m.group(2)}", "Q")] = [num(x) for x in r[1:4]]
+    Q = pd.DataFrame.from_dict(q, orient="index", columns=["boj_gap", "boj_kgap", "boj_lgap"]).dropna(how="all")
+    h = []
+    for r in wb["data2"].iter_rows(values_only=True):
+        m = re.match(r"(\d{4})\.([12])\s*:", nfkc(r[0]) if r and r[0] else "")
+        if m:
+            h.append((int(m.group(1)), int(m.group(2)), nfkc(r[0]).split(":")[1].strip(), *[num(x) for x in r[1:6]]))
+    H = pd.DataFrame(h, columns=["FY", "H", "期間", "pot", "tfp", "cap", "hours", "emp"])
+    if len(Q) < 100 or len(H) < 50:
+        raise ValueError("日銀 gap.xlsx：data1／data2 が読めない")
+    return Q, H

@@ -83,6 +83,18 @@ def main():
     res, info = boj.run(d, pubs, cfg)
     pb = pubs["boj"]
     anc, t0 = anchored(res["gap"], pb["boj_gap"], endq)
+    # 参考：労働時間ギャップの不規則変動を取り除かない場合（日銀2026年改定の処理を入れる前の版）
+    from dataclasses import replace as _replace
+    res_raw, _ = boj.run(d, pubs, _replace(cfg, hours_tc=False))
+    # 潜在成長率（TFP込み、日銀方式の再現）と、TFP込みのギャップ
+    from gapmodel.boj_potential import potential
+    potq, poth = potential(d, res, info, cfg)
+    if "boj_pot" in pubs:
+        pp = pubs["boj_pot"]
+        poth = poth.join(pp[["pot", "tfp", "cap", "hours", "emp"]], rsuffix="（公表）")
+    jp = {"pot": "潜在成長率", "tfp": "TFP", "cap": "資本", "hours": "労働時間", "emp": "就業者"}
+    poth = poth.rename(columns={**{k: f"{v}（再現）" for k, v in jp.items()}, **{f"{k}（公表）": f"{v}（公表）" for k, v in jp.items()}})
+    poth.index = [f"{fy}年度{'上' if hh == 1 else '下'}期" for fy, hh in poth.index]
 
     hist = pd.DataFrame({
         "需給ギャップ（モデル）": res.gap, "需給ギャップ（公表）": pb.boj_gap.reindex(res.index),
@@ -90,6 +102,8 @@ def main():
         "労働投入ギャップ寄与": res.c_lgap, "労働寄与（公表）": pb.boj_lgap.reindex(res.index),
         "製造業稼働率ギャップ": res.util_gap_mfg, "非製造業稼働率ギャップ": res.util_gap_nonmfg,
         "労働力率ギャップ": res.lgap_lfpr, "就業率ギャップ": res.lgap_emp, "労働時間ギャップ": res.lgap_hours,
+        "需給ギャップ（参考：不規則変動を除かない）": res_raw.gap,
+        "労働時間ギャップ（参考：不規則変動を除かない）": res_raw.lgap_hours,
     }).round(3)
     last = hist.loc[endq]
     summary = pd.DataFrame([
@@ -99,6 +113,15 @@ def main():
         ("　労働投入ギャップ寄与", round(float(last["労働投入ギャップ寄与"]), 2)),
         ("　　うち労働力率／就業率／労働時間（ギャップ、αを掛ける前）",
          " / ".join(f"{last[k]:.2f}" for k in ["労働力率ギャップ", "就業率ギャップ", "労働時間ギャップ"])),
+        ("需給ギャップ（参考：労働時間の不規則変動を除かない場合）",
+         round(float(last["需給ギャップ（参考：不規則変動を除かない）"]), 2)),
+        ("潜在成長率（前年比、四半期、モデル）" + ("" if pd.notna(potq["TFP（対数×100）"].get(endq)) else "　※GDP速報前のため潜在TFPは直近の伸びで延長"),
+         round(float(potq["潜在成長率（前年比）"].loc[endq]), 2)),
+        ("　TFP／資本／労働時間／就業者",
+         " / ".join(f"{potq[k].loc[endq]:.2f}" for k in ["寄与：TFP", "寄与：資本", "寄与：労働時間", "寄与：就業者"])),
+        ("参考：TFP込みギャップ（実際のGDP−潜在GDP、日銀は非公表）",
+         round(float(potq["TFP込みギャップ（実際のGDP−潜在GDP）"].loc[endq]), 2)
+         if pd.notna(potq["TFP込みギャップ（実際のGDP−潜在GDP）"].get(endq)) else "GDP速報後に計算"),
         ("需給ギャップ（参考：公表値への接続値）", round(anc, 2) if t0 is not None else "公表値なし"),
         ("　接続の基準期（公表値）", f"{t0}：{pb.boj_gap.loc[t0]:.3f}" if t0 is not None else "-"),
         ("公表値（参考、あれば）", pb.boj_gap.get(endq, "未公表")),
@@ -106,14 +129,16 @@ def main():
     st = pd.DataFrame([{"指標": "需給ギャップ 全期間", **fit_stats(res.gap, pb.boj_gap)},
                        {"指標": "需給ギャップ 2023年以降", **fit_stats(res.gap, pb.boj_gap, "2023Q1")},
                        {"指標": "資本寄与 全期間", **fit_stats(res.c_kgap, pb.boj_kgap)},
-                       {"指標": "労働寄与 全期間", **fit_stats(res.c_lgap, pb.boj_lgap)}])
+                       {"指標": "労働寄与 全期間", **fit_stats(res.c_lgap, pb.boj_lgap)},
+                       {"指標": "参考：不規則変動を除かない 需給ギャップ 全期間", **fit_stats(res_raw.gap, pb.boj_gap)}])
     settings = pd.DataFrame(
         [(k, str(v)) for k, v in vars(cfg).items()] +
         [(f"推計結果：{k}", str(v)) for k, v in info.items() if k != "lfpr_breaks"],
         columns=["設定", "値"])
 
     out = Path(a.out) if a.out else ROOT / "results" / f"boj_gap_{endq}.xlsx"
-    write_excel(out, {"サマリー": summary, "公表値との当てはまり": st, "時系列": hist,
+    write_excel(out, {"サマリー": summary, "潜在成長率（半期）": poth.round(2).loc["1995年度上期":],
+                      "潜在成長率（四半期）": potq.round(3), "公表値との当てはまり": st, "時系列": hist,
                       "入力の到達状況": cov, "設定": settings})
 
     print(f"=== 日銀 需給ギャップ {endq} ===")

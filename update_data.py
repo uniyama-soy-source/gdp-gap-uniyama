@@ -351,6 +351,25 @@ def src_lfs_hours(c: Ctx):
     c.notes.append("労調 就業時間：表2-8-4 非農林業（e-Stat API）。" + "／".join(picked))
 
 
+def src_boj_pub(c: Ctx):
+    """日銀「需給ギャップと潜在成長率」gap.xlsx（URL固定）→ data/published の boj_gap.csv（四半期）と boj_potential.csv（年度半期）。"""
+    b = c.get("https://www.boj.or.jp/research/research_data/gap/gap.xlsx", "boj_gap.xlsx")
+    Q, H = ig.parse_boj_gap_xlsx(b)
+    pub = ROOT / "data" / "published"
+    old = pd.read_csv(pub / "boj_gap.csv")
+    old = old.set_index(pd.PeriodIndex(old.q, freq="Q")).drop(columns="q")
+    for k in Q.columns:
+        _, ch = ig.merge_series(old[k], Q[k], 0.05, 1.5, "boj_gap.csv", k, absolute=True)
+        c.changes.append(ch)
+    out = Q.round(3)
+    out.index = out.index.astype(str)
+    c.pending[pub / "boj_gap.csv"] = out.rename_axis("q").to_csv(lineterminator="\n")
+    c.pending[pub / "boj_potential.csv"] = H.round(4).to_csv(index=False, lineterminator="\n")
+    last = H.iloc[-1]
+    c.notes.append(f"日銀 公表値：需給ギャップ {Q.dropna().index[-1]} まで、潜在成長率 {int(last.FY)}年度{'上' if last.H == 1 else '下'}期"
+                   f"（{last['期間']}）まで {last.pot:.2f}%（TFP {last.tfp:.2f}／資本 {last.cap:.2f}／労働時間 {last.hours:.2f}／就業者 {last.emp:.2f}）")
+
+
 def _catalog(items, name):
     DL.mkdir(parents=True, exist_ok=True)
     with open(DL / name, "w", encoding="utf-8") as f:
@@ -360,7 +379,7 @@ def _catalog(items, name):
 
 SOURCES = {"gdp": src_gdp, "iip": src_iip, "ita": src_ita, "mk": src_mk, "lfs": src_lfs,
            "stock": src_stock, "tankan": src_tankan, "lfs_sexage": src_lfs_sexage, "mk_days": src_mk_days,
-           "cao_pub": src_cao_pub, "pesa": src_pesa, "lfs_hours": src_lfs_hours}
+           "cao_pub": src_cao_pub, "pesa": src_pesa, "lfs_hours": src_lfs_hours, "boj_pub": src_boj_pub}
 
 
 def main():
