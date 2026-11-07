@@ -22,7 +22,7 @@ import pandas as pd
 
 from gapmodel import data, cao
 from gapmodel.config import CAOConfig
-from gapmodel.report import anchored, gap_amount, write_excel
+from gapmodel.report import anchored, gap_amount, pot_table, write_excel
 
 warnings.filterwarnings("ignore")
 ROOT = Path(__file__).resolve().parent
@@ -118,9 +118,11 @@ def main():
     notes = pd.DataFrame({"補完・前提": log + [f"推計設定：{k}={v}" for k, v in info.items()]})
 
     out = Path(a.out) if a.out else ROOT / "results" / f"nowcast_gdp_gap_{endq}.xlsx"
-    write_excel(out, {"サマリー": summary, "GDP予測の感応度": sens, "時系列": hist.loc["2015Q1":], "補完と前提": notes})
+    pot = pot_table(res, data.load_published()["cao"], endq)
+    write_excel(out, {"サマリー": summary, "潜在成長率と寄与度": pot, "GDP予測の感応度": sens, "時系列": hist.loc["2015Q1":], "補完と前提": notes})
     print(f"=== 内閣府GDPギャップ 超早期推計 {endq} ===")
     print(summary.to_string(index=False))
+    print("\n潜在成長率と寄与度（前年比、%・%pt）\n" + pot.to_string(index=False))
     print("\nGDP予測の感応度\n", sens.to_string(index=False))
     print("\n補完と前提\n" + "\n".join(log))
     print(f"\n出力: {out}")

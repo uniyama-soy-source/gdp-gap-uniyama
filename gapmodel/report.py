@@ -76,3 +76,23 @@ def gap_amount(gdp_bn: float, gap_pct: float) -> float:
     GDPギャップ＝(実際のGDP−潜在GDP)／潜在GDP なので、実額＝実際のGDP×g／(100＋g)。
     実質GDP（季調系列）は年率表示なので、そのまま年額になる。g が小さければ 実際のGDP×g／100 とほぼ同じ。"""
     return gdp_bn * gap_pct / (100 + gap_pct) / 1000
+
+
+POT_ITEMS = [("潜在成長率", "pot_growth", "pot"), ("　TFP", "c_tfp", "tfp"), ("　資本", "c_cap", "cap"),
+             ("　労働時間", "c_hours", "hours"), ("　就業者", "c_emp", "emp")]
+
+
+def pot_table(res: pd.DataFrame, pub: pd.DataFrame, endq) -> pd.DataFrame:
+    """潜在成長率（前年比）と寄与度を、モデル値と「前期の公表値＋モデルの前期→当期変化」（接続値）で並べる。
+    公表値は0.1刻み。内閣府は公表のたびに過去の潜在成長率も改定するので、接続値は目安。"""
+    yoy = res[[c for _, c, _ in POT_ITEMS]].rolling(4).mean()
+    t0 = endq - 1
+    rows = []
+    for label, rc, pc in POT_ITEMS:
+        m1, m0 = float(yoy[rc].get(endq, np.nan)), float(yoy[rc].get(t0, np.nan))
+        p0 = pd.to_numeric(pub[pc], errors="coerce").get(t0, np.nan) if pc in pub else np.nan
+        p1 = pd.to_numeric(pub[pc], errors="coerce").get(endq, np.nan) if pc in pub else np.nan
+        rows.append({"項目": label, "接続値（推奨）": round(p0 + (m1 - m0), 2) if not np.isnan(p0) else np.nan,
+                     f"前期の公表値（{t0}）": p0, "モデルの前期→当期変化": round(m1 - m0, 2),
+                     f"モデル（{endq}）": round(m1, 2), f"公表値（{endq}、あれば）": p1})
+    return pd.DataFrame(rows)

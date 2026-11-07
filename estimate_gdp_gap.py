@@ -24,7 +24,7 @@ import pandas as pd
 
 from gapmodel import data, cao
 from gapmodel.config import CAOConfig
-from gapmodel.report import gap_amount, input_coverage, anchored, fit_stats, write_excel
+from gapmodel.report import gap_amount, pot_table, input_coverage, anchored, fit_stats, write_excel
 
 warnings.filterwarnings("ignore")
 ROOT = Path(__file__).resolve().parent
@@ -127,12 +127,14 @@ def main():
         columns=["設定", "値"])
     settings = pd.concat([pd.DataFrame([("補完", x) for x in fills], columns=["設定", "値"]), settings])
 
+    pot = pot_table(res, data.load_published()["cao"], endq)
     out = Path(a.out) if a.out else ROOT / "results" / f"gdp_gap_{endq}.xlsx"
-    write_excel(out, {"サマリー": summary, "公表値との当てはまり": st, "時系列": hist,
+    write_excel(out, {"サマリー": summary, "潜在成長率と寄与度": pot, "公表値との当てはまり": st, "時系列": hist,
                       "入力の到達状況": cov, "設定": settings})
 
     print(f"=== 内閣府GDPギャップ {endq} ===")
     print(summary.to_string(index=False))
+    print("\n潜在成長率と寄与度（前年比、%・%pt）\n" + pot.to_string(index=False))
     print("\n公表値との当てはまり\n", st.to_string(index=False))
     miss = cov[cov["対象期をカバー"] != "○"]
     if len(miss):
