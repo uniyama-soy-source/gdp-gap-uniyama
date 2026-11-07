@@ -69,3 +69,10 @@ def write_excel(path: Path, sheets: dict[str, pd.DataFrame]):
                 width = max(len(str(c.value)) if c.value is not None else 0 for c in col[:200])
                 ws.column_dimensions[col[0].column_letter].width = min(max(10, width * 1.6), 60)
             ws.freeze_panes = "B2"
+
+
+def gap_amount(gdp_bn: float, gap_pct: float) -> float:
+    """GDPギャップの実額（兆円、実質・年率）。
+    GDPギャップ＝(実際のGDP−潜在GDP)／潜在GDP なので、実額＝実際のGDP×g／(100＋g)。
+    実質GDP（季調系列）は年率表示なので、そのまま年額になる。g が小さければ 実際のGDP×g／100 とほぼ同じ。"""
+    return gdp_bn * gap_pct / (100 + gap_pct) / 1000

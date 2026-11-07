@@ -22,7 +22,7 @@ import pandas as pd
 
 from gapmodel import data, cao
 from gapmodel.config import CAOConfig
-from gapmodel.report import anchored, write_excel
+from gapmodel.report import anchored, gap_amount, write_excel
 
 warnings.filterwarnings("ignore")
 ROOT = Path(__file__).resolve().parent
@@ -91,9 +91,10 @@ def main():
 
     sens = []
     for s in [-2.0, -1.0, 0.0, a.gdp_saar, 1.0, 2.0]:
-        r, _, _ = run_with(s)
+        r, _, gg = run_with(s)
         an, _ = anchored(r["gap"], pub, endq)
         sens.append({"GDP前期比年率の想定（%）": s, "GDPギャップ（接続値）": round(an, 2),
+                     "実額（兆円、実質・年率）": round(gap_amount(float(gg.loc[endq]), an), 1),
                      "GDPギャップ（モデル水準）": round(float(r["gap"].loc[endq]), 2),
                      "潜在成長率（前年比）": round(float(r["pot_growth"].rolling(4).mean().loc[endq]), 2)})
     sens = pd.DataFrame(sens).drop_duplicates().sort_values("GDP前期比年率の想定（%）")
@@ -106,6 +107,8 @@ def main():
         ("GDPギャップ（推奨：接続値）", round(anc, 2)),
         ("　接続の基準期（公表値）", f"{t0}：{pub.loc[t0]:.1f}"),
         ("　前期→当期の変化幅（モデル）", round(float(res['gap'].loc[endq] - res['gap'].loc[t0]), 2)),
+        ("　実額（兆円、実質・年率）", round(gap_amount(float(g.loc[endq]), anc), 1)),
+        ("　　計算に使った実質GDP（兆円、年率、予測で置いた値）", round(float(g.loc[endq]) / 1000, 1)),
         ("GDPギャップ（モデル水準）", round(float(res['gap'].loc[endq]), 2)),
         ("潜在成長率（前年比）", round(float(yoy.loc[endq]), 2)),
         ("GDP予測が前期比年率1%外れたときのギャップの変化", f"約{slope:.2f}pt"),

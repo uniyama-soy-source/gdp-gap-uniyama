@@ -9,3 +9,6 @@ __pycache__/
 gapmodel.zip
 # Excel を開いている間にできる一時ファイル
 ~$*
+
+# e-Stat API のアプリケーションID（公開しない）
+estat_appid.txt

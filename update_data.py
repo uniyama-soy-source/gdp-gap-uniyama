@@ -316,6 +316,41 @@ def src_pesa(c: Ctx):
     c.notes.append(f"一般職業紹介状況：表6・表8（調査年月 {got[0].survey}、パート含む季節調整値の四半期平均）")
 
 
+def _estat_appid() -> str:
+    f = ROOT / "estat_appid.txt"
+    if not f.exists():
+        raise RuntimeError("estat_appid.txt がありません（e-Stat のアプリケーションIDを1行で書いて GDPgap フォルダに置く）")
+    a = f.read_text(encoding="utf-8-sig").strip()
+    if not re.fullmatch(r"[0-9A-Za-z]{30,}", a):
+        raise RuntimeError("estat_appid.txt の中身がアプリケーションIDの形（英数字40文字程度）になっていない")
+    return a
+
+
+def src_lfs_hours(c: Ctx):
+    """労調 基本集計 表2-8-4 非農林業従業者の平均週間就業時間・延週間就業時間（e-Stat API、statsDataId 0003022751、2011年〜）。"""
+    import json as _json
+    app, sid = _estat_appid(), "0003022751"
+    meta = _json.loads(ig.http_get(f"{ig.ESTAT_API}/getMetaInfo?appId={app}&statsDataId={sid}"))
+    st = meta["GET_META_INFO"]["RESULT"]
+    if int(st["STATUS"]) != 0:
+        raise RuntimeError(f"e-Stat API：{st.get('ERROR_MSG')}")
+    DL.mkdir(parents=True, exist_ok=True)
+    (DL / f"estat_meta_{sid}.json").write_text(_json.dumps(meta, ensure_ascii=False, indent=1), encoding="utf-8")
+    params, picked = ig.estat_pick_codes(meta, ["平均週間就業時間", "延週間就業時間"])
+    q = "&".join(f"{k}={v}" for k, v in params.items())
+    raw = ig.http_get(f"{ig.ESTAT_API}/getStatsData?appId={app}&statsDataId={sid}&{q}&metaGetFlg=Y&limit=100000")
+    js = _json.loads(raw)
+    st = js["GET_STATS_DATA"]["RESULT"]
+    if int(st["STATUS"]) != 0:
+        raise RuntimeError(f"e-Stat API：{st.get('ERROR_MSG')}")
+    (DL / f"estat_data_{sid}.json").write_bytes(raw)
+    c.log(f"    取得 {len(raw):>9,}B estat_data_{sid}.json  ← {ig.ESTAT_API}/getStatsData")
+    c.log("    選んだ分類：" + " ／ ".join(picked))
+    new = ig.parse_estat_values(js, {"平均週間就業時間": "ah", "延週間就業時間": "nh"})
+    c.merge("lfs_hours_monthly.txt", new, rev=0.3, jump=8.0)
+    c.notes.append("労調 就業時間：表2-8-4 非農林業（e-Stat API）。" + "／".join(picked))
+
+
 def _catalog(items, name):
     DL.mkdir(parents=True, exist_ok=True)
     with open(DL / name, "w", encoding="utf-8") as f:
@@ -325,7 +360,7 @@ def _catalog(items, name):
 
 SOURCES = {"gdp": src_gdp, "iip": src_iip, "ita": src_ita, "mk": src_mk, "lfs": src_lfs,
            "stock": src_stock, "tankan": src_tankan, "lfs_sexage": src_lfs_sexage, "mk_days": src_mk_days,
-           "cao_pub": src_cao_pub, "pesa": src_pesa}
+           "cao_pub": src_cao_pub, "pesa": src_pesa, "lfs_hours": src_lfs_hours}
 
 
 def main():

@@ -56,7 +56,7 @@ def http_get(url: str, timeout: int = 60, retries: int = 2) -> bytes:
         except Exception as e:  # noqa: BLE001
             last = e
             time.sleep(2 * (i + 1))
-    raise RuntimeError(f"取得失敗 {url}: {type(last).__name__}: {last}")
+    raise RuntimeError(f"取得失敗 {url.split('?')[0]}: {type(last).__name__}: {str(last).split('?')[0]}")
 
 
 def decode(b: bytes) -> str:
@@ -551,3 +551,59 @@ def parse_pesa(b6: bytes, b8: bytes) -> dict[str, pd.Series]:
                     vals[pd.Period(f"{m.group(1)}Q{q}", "Q")] = round(v / 1000, 1)
         out[name] = pd.Series(vals).sort_index()
     return out
+
+
+# ---------------------------------------------------------------- e-Stat API（アプリケーションIDが要る）
+ESTAT_API = "https://api.e-stat.go.jp/rest/3.0/app/json"
+
+
+def _as_list(x):
+    return x if isinstance(x, list) else [x]
+
+
+def estat_pick_codes(meta: dict, tab_words: list[str]) -> tuple[dict, list[str]]:
+    """getMetaInfo の結果から、表章項目は tab_words を含むもの、その他の分類は
+    「非農林業」「総数」などの集計項目を選ぶ。戻り値：({パラメータ名: コード}, 選んだ内容の説明)。"""
+    objs = _as_list(meta["GET_META_INFO"]["METADATA_INF"]["CLASS_INF"]["CLASS_OBJ"])
+    prefer = ["非農林業", "総数", "男女計", "15歳以上", "全国", "計", "総計"]
+    params, notes = {}, []
+    for o in objs:
+        oid, oname = o["@id"], nfkc(o["@name"])
+        cls = _as_list(o["CLASS"])
+        if oid == "time":
+            continue
+        if oid == "tab":
+            hit = [c for c in cls if any(w in nfkc(c["@name"]) for w in tab_words)]
+            if len(hit) < len(tab_words):
+                raise ValueError(f"表章項目に {tab_words} が見つからない：{[c['@name'] for c in cls]}")
+            params["cdTab"] = ",".join(c["@code"] for c in hit)
+            notes.append(f"{oname}：" + "、".join(nfkc(c["@name"]) for c in hit))
+            continue
+        pick = None
+        for w in prefer:
+            pick = next((c for c in cls if nfkc(c["@name"]).strip() == w), None)
+            if pick:
+                break
+        if pick is None:
+            pick = next((c for c in cls if str(c.get("@level", "1")) == "1"), cls[0])
+        key = "cd" + oid[0].upper() + oid[1:]
+        params[key] = pick["@code"]
+        notes.append(f"{oname}：{nfkc(pick['@name'])}")
+    return params, notes
+
+
+def parse_estat_values(js: dict, tab_map: dict[str, str]) -> dict[str, pd.Series]:
+    """getStatsData の結果 → {系列名: 月次系列}。tab_map は表章項目名に含まれる語 → 系列名。"""
+    sd = js["GET_STATS_DATA"]["STATISTICAL_DATA"]
+    objs = _as_list(sd["CLASS_INF"]["CLASS_OBJ"])
+    names = {o["@id"]: {c["@code"]: nfkc(c["@name"]) for c in _as_list(o["CLASS"])} for o in objs}
+    out = {k: {} for k in tab_map.values()}
+    for v in _as_list(sd["DATA_INF"]["VALUE"]):
+        tname = names["tab"].get(v.get("@tab"), "")
+        key = next((k for w, k in tab_map.items() if w in tname), None)
+        m = re.search(r"(\d{4})年\s*(\d{1,2})月", names["time"].get(v["@time"], ""))
+        if key and m:
+            x = num(v.get("$"))
+            if not np.isnan(x):
+                out[key][pd.Period(f"{m.group(1)}-{int(m.group(2)):02d}", "M")] = x
+    return {k: pd.Series(d).sort_index() for k, d in out.items()}

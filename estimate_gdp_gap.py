@@ -24,7 +24,7 @@ import pandas as pd
 
 from gapmodel import data, cao
 from gapmodel.config import CAOConfig
-from gapmodel.report import input_coverage, anchored, fit_stats, write_excel
+from gapmodel.report import gap_amount, input_coverage, anchored, fit_stats, write_excel
 
 warnings.filterwarnings("ignore")
 ROOT = Path(__file__).resolve().parent
@@ -107,10 +107,13 @@ def main():
     }).round(3)
 
     last = hist.loc[endq]
+    gdp_t = float(d["gdp"].astype(float).loc[endq])
     summary = pd.DataFrame([
         ("推計対象期", str(endq)),
         ("GDPギャップ（推奨：公表値への接続値）", round(anc, 2) if t0 is not None else "公表値なし"),
         ("　接続の基準期（公表値）", f"{t0}：{pub.loc[t0]:.1f}" if t0 is not None else "-"),
+        ("　実額（兆円、実質・年率）", round(gap_amount(gdp_t, anc), 1) if t0 is not None else "-"),
+        ("　　計算に使った実質GDP（兆円、年率）", round(gdp_t / 1000, 1)),
         ("GDPギャップ（モデル水準）", round(float(last["GDPギャップ（モデル）"]), 2)),
         ("潜在成長率（前年比）", round(float(last["潜在成長率（前年比）"]), 2)),
         ("　TFP／資本／労働時間／就業者",
