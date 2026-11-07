@@ -1,0 +1,98 @@
+{
+ "CAO": {
+  "info": {
+   "alpha": 0.608,
+   "uv_betas": {
+    "1986Q2": -0.515,
+    "1991Q4": -0.395,
+    "2003Q4": -0.582,
+    "2011Q4": -0.591
+   },
+   "lfpr_recent_diff": 0.483,
+   "lfpr_jilpt_diff": 0.18,
+   "potential_util_mfg": 0.9053,
+   "potential_util_nonmfg": 0.8832,
+   "capacity_breaks_mfg": [
+    "2008Q1",
+    "2010Q1"
+   ],
+   "capacity_breaks_nonmfg": [
+    "2010Q1",
+    "2014Q1"
+   ]
+  },
+  "gap_all": {
+   "n": 129,
+   "RMSE": 0.365,
+   "bias": -0.061,
+   "corr": 0.98,
+   "max_abs": 0.731
+  },
+  "gap_2023-": {
+   "n": 14,
+   "RMSE": 0.449,
+   "bias": 0.445,
+   "corr": 0.996,
+   "max_abs": 0.577
+  },
+  "pot_growth_yoy": {
+   "n": 122,
+   "RMSE": 0.117,
+   "bias": -0.026,
+   "corr": 0.96,
+   "max_abs": 0.361
+  }
+ },
+ "BOJ": {
+  "info": {
+   "alpha": 0.608,
+   "iip_on_qna_slope": 0.974,
+   "capacity_on_lnK": 0.787,
+   "util_on_DI_mfg": -0.423,
+   "vacancy_correction_last": 1.2565,
+   "kgap_offset": 0.651
+  },
+  "gap_all": {
+   "n": 130,
+   "RMSE": 0.21,
+   "bias": -0.009,
+   "corr": 0.987,
+   "max_abs": 0.533
+  },
+  "gap_2023-": {
+   "n": 14,
+   "RMSE": 0.192,
+   "bias": 0.056,
+   "corr": 0.864,
+   "max_abs": 0.458
+  },
+  "kgap": {
+   "n": 130,
+   "RMSE": 0.123,
+   "bias": 0.02,
+   "corr": 0.991,
+   "max_abs": 0.357
+  },
+  "lgap": {
+   "n": 130,
+   "RMSE": 0.202,
+   "bias": -0.03,
+   "corr": 0.926,
+   "max_abs": 0.585
+  },
+  "empgap": {
+   "n": 130,
+   "RMSE": 0.001,
+   "bias": -0.0,
+   "corr": 1.0,
+   "max_abs": 0.006
+  },
+  "gap_all_uncalibrated": {
+   "n": 130,
+   "RMSE": 0.315,
+   "bias": 0.233,
+   "corr": 0.987,
+   "max_abs": 0.789
+  }
+ }
+}

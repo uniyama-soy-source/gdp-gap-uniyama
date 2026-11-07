@@ -1,0 +1,8 @@
+pandas
+numpy
+statsmodels
+matplotlib
+openpyxl
+holidays
+pypdf
+cryptography

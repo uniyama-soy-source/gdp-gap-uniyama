@@ -1,0 +1,11 @@
+# 取得したファイルの置き場（大きい・再取得できる）
+downloads/
+# data/raw の更新前コピー
+data/backup/
+# Python のキャッシュ
+__pycache__/
+*.pyc
+# 配布用のまとめファイル
+gapmodel.zip
+# Excel を開いている間にできる一時ファイル
+~$*
