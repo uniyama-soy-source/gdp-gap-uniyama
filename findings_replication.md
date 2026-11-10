@@ -158,6 +158,6 @@
 
 ### 置き場の整理と自動取得（2026-11-10夜）
 - 接続指数の取り込みを `update_data.py` の link に組み込んだ（`gapmodel/ingest.py` の parse_iip_link・parse_ita_link・link_junction）。単独の取り込みスクリプト（tools_import_ita_link.py、tools_import_iip_link.py）は廃止。上の節でこの2つを使うと書いた箇所は、`python update_data.py --only link` に読み替える。
-- 確認：手元の2ファイルを返す偽の取得関数で link を回し、既存の3系列（ip_mm_s_link、ip_mfg_s_link、ita_o_link）と全月一致。系列を消してから取り込み直しても同じ値に戻り、既定の照合結果（全期間0.252）も不変。経産省サイトからの実取得はWindowsでしか試せず未確認（固定URL：iip/xls/b2020_sgs1j.xlsx、sanzi/result/excel/b2020_ITA_linkj.xlsx）。
+- 確認：手元の2ファイルを返す偽の取得関数で link を回し、既存の3系列（ip_mm_s_link、ip_mfg_s_link、ita_o_link）と全月一致。系列を消してから取り込み直しても同じ値に戻り、既定の照合結果（全期間0.252）も不変。経産省サイトからの実取得は、同日中にユーザーがWindowsで `--only link --dry-run` を回し、3系列とも「つなぎ目が一致」と出ることを確認した（固定URL：iip/xls/b2020_sgs1j.xlsx、sanzi/result/excel/b2020_ITA_linkj.xlsx）。
 - 置き場：経産省のExcel 2つは data/raw から downloads/link_20261110/ へ、DP/26-8 のPDFは gapmodel/ から docs/ へ移した。どちらもコミットしない（.gitignore に docs/*.pdf を追加）。図から読んだ数値（data/published/dp268_fig*.csv）はコミットする。
 
