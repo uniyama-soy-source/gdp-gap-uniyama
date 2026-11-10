@@ -69,6 +69,8 @@ def load_all() -> dict:
 
     d["matrix"] = pd.read_csv(RAW / "stock_matrix_ratios.csv", comment="#").set_index("year")
     d["labor_share"] = pd.read_csv(RAW / "labor_share_sna.csv", index_col=0)
+    # 製造業の雇用シェアの規準化に使う倍率（2020年＝0.16）。データを過去時点で切っても変わらないよう、ここで求めておく。
+    d["mfg_share_scale"] = 0.16 / float((q_mean(d["emfg_sa"]) / q_mean(d["e_sa"])).loc["2020Q1":"2020Q4"].mean())
     return d
 
 

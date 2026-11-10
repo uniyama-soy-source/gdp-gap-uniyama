@@ -17,17 +17,18 @@ SEXAGE = [f"{s}{a}" for s in "mf" for a in (15, 25, 35, 45, 55, 65)]
 
 
 # ---------------- 資本投入ギャップ ----------------
-def _iip_mfg_sa_q(d):
-    o = d["ip_mfg_o"]
-    st = seasonal_adjust_log(o, 12)
+def _iip_mfg_sa_q(d, source: str = "linked"):
     off = d["ip_mfg_s"]
+    if source == "linked":      # 2017年以前は接続指数の季節調整済指数（実データ）
+        return q_mean(pd.concat([d["ip_mfg_s_link"].loc[:off.index[0] - 1], off]))
+    st = seasonal_adjust_log(d["ip_mfg_o"], 12)     # 従来：原指数に手元でSTLをかけた代用品
     return q_mean(pd.concat([st.loc[:off.index[0] - 1], off]))
 
 
 def capital_gap(d, cfg: BOJConfig, qi):
     end = pd.Period(cfg.end, "Q")
     # 分子：生産QNAの製造業実質産出で鉱工業生産（製造業）を回帰した当てはめ値。QNA未公表期はIIPの伸びで延長。
-    ip = _iip_mfg_sa_q(d)
+    ip = _iip_mfg_sa_q(d, cfg.iip_sa_source)
     qna = d["mfg_output"].loc[:pd.Period(cfg.qna_last, "Q")]
     idx = qna.index.intersection(ip.index)
     r = sm.OLS(np.log(ip.loc[idx]), sm.add_constant(np.log(qna.loc[idx]))).fit()

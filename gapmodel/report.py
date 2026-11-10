@@ -43,6 +43,19 @@ def anchored(model: pd.Series, published: pd.Series, target: pd.Period):
     return float(pub.loc[t0] + model.loc[target] - model.loc[t0]), t0
 
 
+def anchored_avg(model: pd.Series, published: pd.Series, target: pd.Period, k: int = 2):
+    """接続の基準を直近 k 期の平均にした値（記録用の参考値）：モデルの対象期の値に、
+    直近 k 期の「公表値−モデル値」の平均を足す。k=1 なら anchored と同じ。
+    内閣府の改定は古い期ほど小さいので基準を分散させる案。優劣はまだ判定できず、毎回並べて記録する
+    （findings_replication.md「Fableによる検証」）。公表値が k 期そろわなければ NaN。"""
+    pub = published.dropna()
+    pub = pub[pub.index < target]
+    if len(pub) < k or (pub.index[-1] - pub.index[-k]).n != k - 1:
+        return np.nan
+    qs = pub.index[-k:]
+    return float(model.loc[target] + (pub.loc[qs] - model.loc[qs]).mean())
+
+
 def fit_stats(model: pd.Series, published: pd.Series, since: str | None = None) -> dict:
     j = pd.concat([model, published], axis=1).dropna()
     if since:

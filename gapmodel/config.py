@@ -26,6 +26,22 @@ class CAOConfig:
     capacity_break_select: str = "fixed"        # "fixed"=本数固定／"bp"=Bai-Perron型の逐次検定（上の本数が上限）
     nonmfg_start: str = "2008Q1"        # 第3次産業活動指数（総合）の始期。2005年基準を接続すれば "2003Q1"
     ita_link_2005: bool = False         # 2005年基準（2003年～）を2007年以前に接続する
+    # --- 2026-11-10 追加（findings_replication.md「Fableによる検証」） ---
+    # 非製造業の原指数（2017年以前）。
+    # "linked"=接続指数「第３次産業総合（直接調整法）」の原指数（1988年～。2018年以降は総合の原指数と同じ値）。既定。
+    # "synthetic"=季調済接続指数×2018年以降の平均季節比で作った合成値（2026-11-10までの既定。比較用に残す）。
+    ita_orig_source: str = "linked"
+    # 鉱工業生産の季節調整値（2017年以前）。"linked"=接続指数の季節調整済指数（実データ、1978年～）。既定。
+    # "stl"=原指数に手元でSTLをかけた代用品（2026-11-10までの既定。比較用に残す）。
+    iip_sa_source: str = "linked"
+    # 以下は既定値のままなら結果は変わらない。
+    # 生産能力関数の係数を推計する期間。"full"=全期間（従来）／"break_sample"=転換点の探索期間（コロナ禍前）
+    # だけで推計し、以降は外挿。DP/26-8 図8（製造業の稼働率）は "break_sample" でないと再現できない。
+    capacity_coef_sample: str = "full"            # 製造業
+    capacity_coef_sample_nonmfg: str = "full"     # 非製造業（図がなく確かめられないため従来のまま）
+    # 転換点を固定する（None=残差平方和最小で探す）。製造業の ("2002Q4", "2018Q1") は図8の稼働率から逆算した値。
+    capacity_breaks_fixed: tuple | None = None
+    capacity_breaks_fixed_nonmfg: tuple | None = None
     # 労働
     jilpt_lfpr: dict = field(default_factory=lambda: {2025: 63.0, 2030: 63.9})  # 成長率ベースライン・労働参加漸進
     lfpr_recent_years: tuple = (2023, 2025)     # 足元トレンドを測る年（前年差の平均）
@@ -62,3 +78,18 @@ class BOJConfig:
     tc_forecast_ext: int = 12           # TC抽出前にARIMA(0,1,1)で何か月延長するか（X-12流の端点処理）。0で延長なし
     hours_tc: bool = True               # 労働時間に傾向循環（TC）成分を使う（日銀2026年改定 脚注13）
     hours_source: str = "lfs"           # "lfs"=労調 平均週間就業時間（非農林業従業者）／"mk"=毎勤 総実労働時間
+    # 製造工業生産の季節調整値（2017年以前）。"linked"=接続指数の季節調整済指数（実データ、1978年～）。既定。
+    # "stl"=原指数に手元でSTLをかけた代用品（2026-11-10までの既定。比較用に残す）。
+    iip_sa_source: str = "linked"
+
+
+# 設定の組（compare_presets.py / backtest_realtime2.py の --preset で選ぶ）。"current" が既定。
+CAO_PRESETS = {
+    "current": {},
+    # 2026-11-10までの既定：非製造業の原指数（2008〜17年）が合成値
+    "synthetic": {"ita_orig_source": "synthetic", "iip_sa_source": "stl"},
+    # 鉱工業の季節調整値だけ従来の代用品に戻す（影響の切り分け用）
+    "iip_stl": {"iip_sa_source": "stl"},
+    # 製造業の生産能力関数を DP/26-8 図8 に合わせる（転換点2つを図から決めている）
+    "fig8": {"capacity_coef_sample": "break_sample", "capacity_breaks_fixed": ("2002Q4", "2018Q1")},
+}

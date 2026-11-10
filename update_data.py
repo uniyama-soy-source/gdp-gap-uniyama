@@ -171,6 +171,33 @@ def src_ita(c: Ctx):
     c.notes.append("第3次産業活動指数：総合（原・季調、2018年〜。接続指数は据え置き）")
 
 
+def src_link(c: Ctx):
+    """接続指数（2017年以前の実データ）：鉱工業の季節調整済指数と、第3次産業活動指数の総合の原指数。
+    経産省が接続指数を更新したとき（年1回程度）だけ中身が変わる。現行系列とつなぎ目が合うことを確かめてから反映する。"""
+    jobs = [("iip", f"{METI}/iip/b2020_result-2.html", "b2020_sgs1j", f"{METI}/iip/xls/b2020_sgs1j.xlsx",
+             ig.parse_iip_link, "iip_monthly.txt", {"ip_mm_s_link": "ip_mm_s", "ip_mfg_s_link": "ip_mfg_s"}),
+            ("ita", f"{METI}/sanzi/result-2.html", "b2020_ITA_linkj", f"{METI}/sanzi/result/excel/b2020_ITA_linkj.xlsx",
+             ig.parse_ita_link, "ita_monthly.txt", {"ita_o_link": "ita_o"})]
+    for tag, page, stem, fixed, parse, fname, pairs in jobs:
+        try:
+            links = c.page(page, f"meti_{tag}_link")
+        except RuntimeError as e:
+            c.log(f"    （一覧ページが取れない：{e}）")
+            links = []
+        found = find(links, rf"/{stem}\.xlsx$")
+        if not found:
+            c.log(f"    （一覧ページに {stem}.xlsx のリンクがないため固定URLを使う）")
+        new = parse(c.get_first(found + [fixed], f"接続指数 {stem}.xlsx"))
+        cur = c.sfile(fname).series
+        for k, ck in pairs.items():
+            first12, later = ig.link_junction(new[k], cur[ck])
+            if first12 > 0.051:
+                raise RuntimeError(f"{k}：現行の {ck} とつなぎ目が合わない（最初の12か月の差の最大 {first12:.2f}）。取り込まない")
+            c.notes.append(f"接続指数 {k}：{new[k].index[0]}〜{new[k].index[-1]}。現行の {ck} とつなぎ目が一致"
+                           + (f"（その後の {later} か月は現行側が改定済み）" if later else ""))
+        c.merge(fname, new, rev=0.5, jump=15.0)
+
+
 def src_mk(c: Ctx):
     """毎勤：一覧（30-1a）→ 最新月のページ（確報があれば確報）→ 時系列第8表。"""
     links = ig.page_links("https://www.mhlw.go.jp/toukei/list/30-1a.html")
@@ -259,6 +286,24 @@ def src_mk_days(c: Ctx):
     c.notes.append(f"毎勤 出勤日数：実数・指数累積データ（調査年月 {hit[0].survey}）")
 
 
+SHIHYO_WATCH = ("GDPギャップ", "需給ギャップ", "潜在", "推計方法", "見直し")   # 題名にあれば手法の告知かもしれない語
+
+
+def shihyo_since(links, last_no: int):
+    """今週の指標の一覧から、号数が last_no より後の号を [(号数, 題名, URL, 要確認か)] で返す（号数順）。
+    要確認＝GDPギャップの定例の推計結果号ではないのに、題名に SHIHYO_WATCH の語がある号。
+    2023年5月の No.1310（コロナ禍の暫定処理の見直し）のように、次の推計結果号より前に見直し後の値が
+    公表されることがあり、見落とすと接続値の基準が古いままになる（2023Q1の誤差0.79の原因）。"""
+    out = {}
+    for u, t in links:
+        m = re.search(r"/shihyo/\d{4}/\d{4}/(\d+)\.(?:pdf|html?)$", u)
+        if m and int(m.group(1)) > last_no:
+            title = ig.nfkc(t).strip().strip('"“”「」')
+            watch = "GDPギャップの推計結果" not in title and any(w in title for w in SHIHYO_WATCH)
+            out[int(m.group(1))] = (int(m.group(1)), title, u, watch)
+    return [out[k] for k in sorted(out)]
+
+
 def src_cao_pub(c: Ctx):
     """内閣府「今週の指標」の最新のGDPギャップ号 → 公表時点別の記録（cao_vintages_raw.txt）と、公表値（cao_q_raw.txt の GDPギャップ列）。"""
     links = ig.page_links("https://www5.cao.go.jp/keizai3/shihyo/index.html")
@@ -270,6 +315,16 @@ def src_cao_pub(c: Ctx):
     vraw = (pub / "cao_vintages_raw.txt").read_text(encoding="utf-8")
     have = {ln.split("|")[0] for ln in vraw.splitlines() if ln and not ln.startswith(("#", "R|"))}
     label = f"{r['no']}号（{r['date']}、{r['target']} {r['kind']}QE後、本文 {r['head']:+.1f}%）"
+    # 前回記録したGDPギャップ号より後に出た号を並べる（手法見直しの告知を見落とさないため）
+    last_no = max((int(h) for h in have if h.isdigit()), default=0)
+    news = [x for x in shihyo_since(links, last_no) if x[0] != r["no"]]
+    if news:
+        c.notes.append(f"今週の指標：前回記録したGDPギャップ号（No.{last_no}）より後に {len(news)} 号 → "
+                       + " ／ ".join(f"No.{n} {t}" for n, t, _, _ in news))
+    for n, t, u, w in news:
+        if w:
+            c.notes.append(f"【要確認】今週の指標 No.{n}「{t}」（{u}）：手法見直しの告知の可能性。見直し後の値が載っていれば、"
+                           "接続値の基準をその値にする（backtest_realtime2.py の ANCHOR_NOTES と同じ扱い）")
     if str(r["no"]) in have:
         c.notes.append(f"内閣府 公表値：最新は {label}。記録済みのため変更なし")
         return
@@ -377,7 +432,7 @@ def _catalog(items, name):
             f.write(f"{it.stat_inf_id}\t{it.file_type}\t{it.survey}\t{it.updated}\t{it.title}\t{it.url}\n")
 
 
-SOURCES = {"gdp": src_gdp, "iip": src_iip, "ita": src_ita, "mk": src_mk, "lfs": src_lfs,
+SOURCES = {"gdp": src_gdp, "iip": src_iip, "ita": src_ita, "link": src_link, "mk": src_mk, "lfs": src_lfs,
            "stock": src_stock, "tankan": src_tankan, "lfs_sexage": src_lfs_sexage, "mk_days": src_mk_days,
            "cao_pub": src_cao_pub, "pesa": src_pesa, "lfs_hours": src_lfs_hours, "boj_pub": src_boj_pub}
 

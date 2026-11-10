@@ -9,6 +9,10 @@
       （基準改定・年次推計で過去も含め水準がまとめて変わる分は、潜在GDPにも吸収されるため除く）
   B   A ＋ モデルによる前期の改定幅（前期の2次速報・前期末までのデータで推計したモデルの前期値からの変化）
   D   据え置き：前回号の前期値
+  E   接続（主指標、2026-11-10〜）：A と同じだが、基準にする前期値を「公表前に出ていた最新の値」にする。
+      ふつうは前回号の値で A と同じ。手法見直しの告知で見直し後の値が先に公表されていた回だけ、その値を使う
+      （下の ANCHOR_NOTES。いまは2023Q1の1回：今週の指標 No.1310）。
+設定の組は --preset で選ぶ（gapmodel/config.py の CAO_PRESETS。既定は current＝従来どおり）。
 GDPの過去公表値は data/vintages/esri/gaku-jk<yyq><1|2>.csv（fetch_qe_vintages.py で取得）。
 出力：results/backtest_realtime2_cao.xlsx
 """
@@ -20,13 +24,28 @@ import numpy as np
 import pandas as pd
 
 from gapmodel import data, cao, ingest as ig
-from gapmodel.config import CAOConfig
+from gapmodel.config import CAOConfig, CAO_PRESETS
 from gapmodel.vintages import load_cao_vintages
 from gapmodel.report import write_excel
 
 warnings.filterwarnings("ignore")
 ROOT = Path(__file__).resolve().parent
 VDIR = ROOT / "data" / "vintages" / "esri"
+
+
+# 手法見直しの告知で、次の号より前に見直し後の値が公表されていた回。
+# 対象期: (その号の「前回推計」行を基準に使う号, 根拠)。値そのものは cao_vintages_raw.txt の当該号の前回推計行から読む。
+ANCHOR_NOTES = {
+    "2023Q1": (1312, "今週の指標 No.1310（2023-05-12）がコロナ禍の暫定処理の見直し後の値を公表（2022Q4：▲2.0→▲1.3）"),
+}
+
+
+def boot_range(e, n=20000, seed=0):
+    """RMSEの90%の幅（回を重複ありで引き直す）。回数が少ないときの目安。"""
+    e = np.asarray(e, dtype=float)
+    rng = np.random.default_rng(seed)
+    r = np.sqrt((rng.choice(e, (n, len(e))) ** 2).mean(axis=1))
+    return round(float(np.percentile(r, 5)), 3), round(float(np.percentile(r, 95)), 3)
 
 
 def gdp_vintage(q: pd.Period, kind: int) -> pd.Series | None:
@@ -38,10 +57,13 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--from", dest="q0", default="2018Q1")
     ap.add_argument("--to", dest="q1", default="2026Q2")
+    ap.add_argument("--preset", default="current", choices=list(CAO_PRESETS))
     a = ap.parse_args()
+    opt = CAO_PRESETS[a.preset]
     D = data.load_all()
     issues, long = load_cao_vintages()
     cur = long[long.推計 == "今回"]
+    prv = long[long.推計 == "前回"]
 
     def pub(no, q):
         s = cur[cur.号 == no].set_index("期").GDPギャップ
@@ -65,7 +87,7 @@ def main():
         d["gdp"] = g1.astype(float)
         brk_end = str(min(t, pd.Period("2019Q4", "Q")))   # 屈折点の探索期間は、その時点までのデータに限る
         try:
-            res, _ = cao.run(d, CAOConfig(end=str(t), stock_last=str(t - 1), capacity_break_sample_end=brk_end))
+            res, _ = cao.run(d, CAOConfig(end=str(t), stock_last=str(t - 1), capacity_break_sample_end=brk_end, **opt))
         except Exception as e:  # noqa: BLE001  （標本が短い時期は生産能力関数の屈折点が探せない）
             print(f"{t}: 推計できないため省略（{type(e).__name__}）")
             continue
@@ -75,7 +97,7 @@ def main():
         d0["gdp"] = g2p.astype(float)
         try:
             r0, _ = cao.run(d0, CAOConfig(end=str(t - 1), stock_last=str(t - 2),
-                                          capacity_break_sample_end=str(min(t - 1, pd.Period("2019Q4", "Q")))))
+                                          capacity_break_sample_end=str(min(t - 1, pd.Period("2019Q4", "Q"))), **opt))
             m_prev_old = float(r0.gap.loc[t - 1])
         except Exception:  # noqa: BLE001
             m_prev_old = np.nan
@@ -83,18 +105,23 @@ def main():
         rev = float(rv.loc[t - 1])
         base = float(rv.loc[t - 13:t - 2].mean())
         A = pub_prev + m_t - m_t1
+        anchor = pub_prev                      # E の基準：公表前に出ていた最新の値
+        if str(t) in ANCHOR_NOTES:
+            no_a = ANCHOR_NOTES[str(t)][0]
+            anchor = float(prv[prv.号 == no_a].set_index("期").GDPギャップ.loc[t - 1])
         rows.append({"対象期": str(t), "号": no1, "内閣府 1次QE後（実績）": actual,
                      "A 接続（現行）": A, "A1 接続＋前期のGDP改定率": A + rev,
                      "A2 接続＋前期のGDP改定率（直近3年平均との差）": A + rev - base,
                      "B 接続＋モデルによる前期の改定幅": A + (m_t1 - m_prev_old),
-                     "D 据え置き": pub_prev, "モデルによる前期の改定幅": m_t1 - m_prev_old,
+                     "D 据え置き": pub_prev, "E 接続（公表前の最新値を基準）": anchor + m_t - m_t1,
+                     "Eの基準値": anchor, "モデルによる前期の改定幅": m_t1 - m_prev_old,
                      "前回号の前期値": pub_prev, "内閣府による前期の改定幅": pub(no1, t - 1) - pub_prev,
                      "前期のGDP改定率(%)": rev, "直近3年の平均改定率(%)": base,
                      "モデルの前期→当期": m_t - m_t1, "内閣府の前期→当期": actual - pub(no1, t - 1)})
         print(f"{t}: 実績 {actual:+.1f}  A {A:+.2f}  前期改定 内閣府 {rows[-1]['内閣府による前期の改定幅']:+.1f} / GDP {rev:+.2f}（差 {rev - base:+.2f}）")
 
     R = pd.DataFrame(rows)
-    meth = [c for c in R.columns if c.split(" ")[0] in ("A", "A1", "A2", "B", "D")]
+    meth = [c for c in R.columns if c.split(" ")[0] in ("A", "A1", "A2", "B", "D", "E")]
     err = pd.DataFrame({c: R[c] - R["内閣府 1次QE後（実績）"] for c in meth})
 
     def stats(mask, label):
@@ -103,6 +130,8 @@ def main():
                              "RMSE": [round(float(np.sqrt((e[c] ** 2).mean())), 3) for c in meth],
                              "平均誤差": [round(float(e[c].mean()), 3) for c in meth],
                              "最大誤差": [round(float(e[c].abs().max()), 3) for c in meth],
+                             "絶対誤差の中央値": [round(float(e[c].abs().median()), 3) for c in meth],
+                             "RMSEの90%の幅": [f"{boot_range(e[c].dropna())[0]}〜{boot_range(e[c].dropna())[1]}" for c in meth],
                              "回数": [int(e[c].notna().sum()) for c in meth]})
     q = pd.PeriodIndex(R.対象期, freq="Q")
     # 誤差の内訳：内閣府による前期の改定（接続の基準のずれ）と、前期→当期変化幅の差
@@ -111,6 +140,7 @@ def main():
                          round(float(np.sqrt(((R["モデルの前期→当期"] - R["内閣府の前期→当期"]) ** 2).mean())), 3))],
                        columns=["接続値（A）の誤差の内訳", "RMSE"])
     summ = pd.concat([stats(q >= pd.Period("2018Q1", "Q"), "全期間"),
+                      stats(q >= pd.Period("2020Q1", "Q"), "2020年以降（従来の22回）"),
                       stats(q >= pd.Period("2023Q1", "Q"), "2023年以降"),
                       stats((q < pd.Period("2020Q1", "Q")) | (q > pd.Period("2021Q4", "Q")), "コロナ期（2020〜21年）を除く")])
     # 前期の改定：内閣府の改定幅と GDP改定率の関係
@@ -126,7 +156,9 @@ def main():
     print("\n", summ.to_string(index=False))
     print("\n前期の改定\n", rel.to_string(index=False))
     print("\n", dec.to_string(index=False))
-    write_excel(ROOT / "results" / "backtest_realtime2_cao.xlsx",
+    name = "backtest_realtime2_cao.xlsx" if a.preset == "current" else f"backtest_realtime2_cao_{a.preset}.xlsx"
+    print(f"\n設定の組：{a.preset}  → results/{name}")
+    write_excel(ROOT / "results" / name,
                 {"まとめ": summ, "誤差の内訳": dec, "前期の改定": rel, "各期": R.round(3),
                  "誤差": pd.concat([R[["対象期"]], err.round(3)], axis=1)})
 

@@ -24,7 +24,7 @@ import pandas as pd
 
 from gapmodel import data, cao
 from gapmodel.config import CAOConfig
-from gapmodel.report import gap_amount, pot_table, input_coverage, anchored, fit_stats, write_excel
+from gapmodel.report import gap_amount, pot_table, input_coverage, anchored, anchored_avg, fit_stats, write_excel
 
 warnings.filterwarnings("ignore")
 ROOT = Path(__file__).resolve().parent
@@ -93,6 +93,7 @@ def main():
     res, info = cao.run(d, cfg)
     pub = data.load_published()["cao"]["gap"]
     anc, t0 = anchored(res["gap"], pub, endq)
+    anc2 = anchored_avg(res["gap"], pub, endq, 2)   # 記録用：基準を直近2期の平均にした接続値
 
     yoy = res[["pot_growth", "c_tfp", "c_cap", "c_hours", "c_emp"]].rolling(4).mean()
     hist = pd.DataFrame({
@@ -114,6 +115,7 @@ def main():
         ("　接続の基準期（公表値）", f"{t0}：{pub.loc[t0]:.1f}" if t0 is not None else "-"),
         ("　実額（兆円、実質・年率）", round(gap_amount(gdp_t, anc), 1) if t0 is not None else "-"),
         ("　　計算に使った実質GDP（兆円、年率）", round(gdp_t / 1000, 1)),
+        ("　（記録用）基準を直近2期の平均にした接続値", round(anc2, 2) if anc2 == anc2 else "-"),
         ("GDPギャップ（モデル水準）", round(float(last["GDPギャップ（モデル）"]), 2)),
         ("潜在成長率（前年比）", round(float(last["潜在成長率（前年比）"]), 2)),
         ("　TFP／資本／労働時間／就業者",

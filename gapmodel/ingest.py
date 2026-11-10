@@ -138,6 +138,46 @@ def parse_iip(gom1j: bytes, gsm1j: bytes, ngom1j: bytes | None) -> dict[str, pd.
     return out
 
 
+def _link_col(ws, head_row: int, name_or_code: str, ym_col: int, first_row: int) -> pd.Series:
+    """経産省の接続指数xlsx（縦に年月、横に系列）から1系列を月次で取り出す。「－」は欠測。"""
+    rows = list(ws.iter_rows(values_only=True))
+    head = [nfkc(c).strip() for c in rows[head_row]]
+    if name_or_code not in head:
+        raise ValueError(f"{ws.title}: 列 {name_or_code} が見つからない")
+    j = head.index(name_or_code)
+    idx, val = [], []
+    for r in rows[first_row:]:
+        ym = nfkc(r[ym_col]).strip() if len(r) > ym_col else ""
+        if re.fullmatch(r"\d{6}", ym):
+            idx.append(pd.Period(f"{ym[:4]}-{ym[4:]}", "M"))
+            val.append(num(r[j]))
+    return pd.Series(val, index=pd.PeriodIndex(idx, freq="M")).dropna()
+
+
+def parse_ita_link(b: bytes) -> dict[str, pd.Series]:
+    """第3次産業活動指数の接続指数（b2020_ITA_linkj.xlsx）→ 総合の原指数（1988年～）。
+    「第３次産業総合」（K1D000000I）の原指数は接続されていないが、「第３次産業総合（直接調整法）」（J000000I）の
+    原指数が入っている。直接調整法は季節調整のやり方が違うだけで、原指数は総合と同じ値。"""
+    return {"ita_o_link": _link_col(_xlsx(b)["原指数"], 1, "J000000I", 0, 6)}
+
+
+def parse_iip_link(b: bytes) -> dict[str, pd.Series]:
+    """鉱工業指数の接続指数・業種別季節調整済指数（b2020_sgs1j.xlsx）→ 鉱工業・製造工業の生産（1978年～）。"""
+    ws = _xlsx(b)["生産付加価値額"]
+    return {"ip_mm_s_link": _link_col(ws, 2, "鉱工業", 1, 4), "ip_mfg_s_link": _link_col(ws, 2, "製造工業", 1, 4)}
+
+
+def link_junction(link: pd.Series, cur: pd.Series, tol: float = 0.051) -> tuple[float, int]:
+    """接続指数と現行系列のつなぎ目の確認。戻り値：(重なりの最初の12か月の差の最大, その後の月で差がある月数)。
+    最初の12か月が一致しなければ、基準や接続のしかたが変わった可能性があるので取り込まない。
+    その後の差は現行系列の年間補正などで生じうる（使うのは現行系列の開始より前だけなので支障はない）。"""
+    ov = link.index.intersection(cur.dropna().index)
+    if len(ov) < 12:
+        raise ValueError("接続指数と現行系列の重なりが12か月に満たない")
+    d = (link.loc[ov] - cur.loc[ov]).abs()
+    return float(d.iloc[:12].max()), int((d.iloc[12:] > tol).sum())
+
+
 def parse_ita(komj: bytes, ksmj: bytes) -> dict[str, pd.Series]:
     out = {}
     out.update(_meti_rows(_xlsx(komj)["ITA"], 0, {"K1D000000I": "ita_o"}))

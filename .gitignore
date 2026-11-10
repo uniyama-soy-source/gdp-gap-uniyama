@@ -12,3 +12,6 @@ gapmodel.zip
 
 # e-Stat API のアプリケーションID（公開しない）
 estat_appid.txt
+
+# 参照した資料のPDF（再取得できる。URLは README）
+docs/*.pdf

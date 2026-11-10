@@ -100,21 +100,26 @@ def labor_block(d, cfg: CAOConfig):
 
 
 # ---------------- 資本稼働率 ----------------
-def _iip_sa_monthly(d):
-    o = d["ip_mm_o"]
-    st = seasonal_adjust_log(o, 12)
+def _iip_sa_monthly(d, source: str = "linked"):
     off = d["ip_mm_s"]
+    if source == "linked":      # 2017年以前は接続指数の季節調整済指数（実データ）
+        return pd.concat([d["ip_mm_s_link"].loc[:off.index[0] - 1], off])
+    st = seasonal_adjust_log(d["ip_mm_o"], 12)      # 従来：原指数に手元でSTLをかけた代用品
     return pd.concat([st.loc[:off.index[0] - 1], off])
 
 
-def _ita_monthly(d, link_2005: bool = False):
+def _ita_monthly(d, link_2005: bool = False, orig_source: str = "synthetic"):
     sa = pd.concat([d["ita_s_link"].loc[:pd.Period("2017-12", "M")], d["ita_s"]])
     o = d["ita_o"]
-    ratio = (o / d["ita_s"]).dropna()
-    f = ratio.groupby(ratio.index.month).mean()
-    pre = sa.loc[:pd.Period("2017-12", "M")]
-    o_rec = pre * pre.index.month.map(f).values
-    orig = pd.concat([o_rec, o])
+    if orig_source == "linked":
+        # 接続指数「第３次産業総合（直接調整法）」の原指数（実データ）。2018年以降は総合の原指数と一致する。
+        orig = pd.concat([d["ita_o_link"].loc[:o.index[0] - 1], o])
+    else:
+        ratio = (o / d["ita_s"]).dropna()
+        f = ratio.groupby(ratio.index.month).mean()
+        pre = sa.loc[:pd.Period("2017-12", "M")]
+        o_rec = pre * pre.index.month.map(f).values
+        orig = pd.concat([o_rec, o])
     if link_2005 and "ita05_s" in d:
         # 2005年基準（2003年1月～）を、2008年の季調値の比（2020年基準接続÷2005年基準）で水準を合わせて2007年以前に接続。
         # 原指数も同じ比で接続する（2003～07年は実際の原指数）。
@@ -125,7 +130,8 @@ def _ita_monthly(d, link_2005: bool = False):
     return sa, orig
 
 
-def _utilization(cap_m, prod_q, K_star, L_star, alpha, break_end, n_breaks, start, select="fixed"):
+def _utilization(cap_m, prod_q, K_star, L_star, alpha, break_end, n_breaks, start, select="fixed",
+                 coef_sample="full", breaks_fixed=None):
     capq = q_mean(cap_m)
     idx = capq.index.intersection(K_star.index).intersection(L_star.index)
     idx = idx[idx >= pd.Period(start, "Q")]
@@ -137,8 +143,17 @@ def _utilization(cap_m, prod_q, K_star, L_star, alpha, break_end, n_breaks, star
     else:                   # 本数を n_breaks に固定してSSE最小
         br, _ = best_breaks(y, n_breaks, min_seg=8)
         tests = None
-    # 転換点はコロナ前の標本で探索し、係数は全標本で推計する（転換点の位置のみを固定）
-    beta = np.linalg.lstsq(hinge_design(len(idx), br), lnA.values, rcond=None)[0]
+    if breaks_fixed is not None:
+        # 転換点を指定する。探索期間の終わりから4期以内のものは使わない（過去時点の検証で標本が足りないため）
+        br = [int(np.where(fit_idx == pd.Period(q, "Q"))[0][0]) for q in breaks_fixed
+              if fit_idx[0] < pd.Period(q, "Q") <= fit_idx[-1] - 4]
+        tests = None
+    if coef_sample == "break_sample":
+        # 係数も探索期間（コロナ禍前）だけで推計し、以降は外挿する
+        beta = np.linalg.lstsq(hinge_design(len(fit_idx), br), y, rcond=None)[0]
+    else:
+        # 転換点はコロナ前の標本で探索し、係数は全標本で推計する（転換点の位置のみを固定）
+        beta = np.linalg.lstsq(hinge_design(len(idx), br), lnA.values, rcond=None)[0]
     lnA_fit = pd.Series(hinge_design(len(idx), br) @ beta, index=idx)
     maxcap = np.exp(lnA_fit) * K_star.loc[idx] ** (1 - alpha) * L_star.loc[idx] ** alpha
     U = prod_q.reindex(idx) / maxcap
@@ -156,24 +171,30 @@ def capital_block(d, cfg: CAOConfig, alpha, lab):
     t = np.arange(len(sh)); b = np.polyfit(t[:32], np.log(sh.values[:32]), 1)
     back = pd.period_range(pd.Period("1980Q1", "Q"), sh.index[0] - 1, freq="Q")
     sh = pd.concat([pd.Series(np.exp(b[1] + b[0] * np.arange(-len(back), 0)), index=back), sh])
-    sh = sh / sh.loc["2020Q1":"2020Q4"].mean() * 0.16          # 製造業のおおよその雇用シェアで水準を置く（比のみが効く）
+    # 製造業のおおよその雇用シェア（2020年＝0.16）で水準を置く。2020年より前で切ったデータ（過去時点の検証）では
+    # 2020年の平均がとれないので、切る前のデータで求めた倍率（data.load_all の mfg_share_scale）を使う。
+    if "mfg_share_scale" in d:
+        sh = sh * d["mfg_share_scale"]
+    else:
+        sh = sh / sh.loc["2020Q1":"2020Q4"].mean() * 0.16
     sh = sh.reindex(qi)
     L_m, L_n = lab.L_star * sh, lab.L_star * (1 - sh)
 
     # 製造業：鉱工業生産指数（原指数）にウォートン・スクール法
-    ip_sa_q = q_mean(_iip_sa_monthly(d)).reindex(qi)
+    ip_sa_q = q_mean(_iip_sa_monthly(d, cfg.iip_sa_source)).reindex(qi)
     wcap_m = wharton_capacity(d["ip_mm_o"], cfg.wharton_window)
     U_m, cap_m, br_m = _utilization(wcap_m, ip_sa_q, Ks.mfgT, L_m, alpha,
                                     cfg.capacity_break_sample_end, cfg.capacity_n_breaks, cfg.start,
-                                    cfg.capacity_break_select)
+                                    cfg.capacity_break_select, cfg.capacity_coef_sample, cfg.capacity_breaks_fixed)
     nb_n = cfg.capacity_n_breaks if cfg.capacity_n_breaks_nonmfg is None else cfg.capacity_n_breaks_nonmfg
     # 非製造業：第3次産業活動指数（2008年以降）
-    ita_sa, ita_o = _ita_monthly(d, cfg.ita_link_2005)
+    ita_sa, ita_o = _ita_monthly(d, cfg.ita_link_2005, cfg.ita_orig_source)
     ita_sa_q = q_mean(ita_sa)
     wcap_n = wharton_capacity(ita_o, cfg.wharton_window)
     U_n, cap_n, br_n = _utilization(wcap_n, ita_sa_q, Ks.nmT, L_n, alpha,
                                     cfg.capacity_break_sample_end, nb_n, cfg.nonmfg_start,
-                                    cfg.capacity_break_select)
+                                    cfg.capacity_break_select, cfg.capacity_coef_sample_nonmfg,
+                                    cfg.capacity_breaks_fixed_nonmfg)
 
     di_m = d["tankan_equip_mfg"].reindex(qi)
     di_n = d["tankan_equip_nonmfg"].reindex(qi)
