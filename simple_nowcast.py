@@ -4,7 +4,8 @@
   今期のギャップ ≒ 前期のギャップ ＋ 今期の成長率 − 潜在成長率（四半期）
 さらに前期のギャップは、前期のGDPが改定されると動く（前期の成長率の改定分を足す）。
 使う数字（すべて％、前期比、年率にしない）：
-  P   前回号の前期のギャップ（公表値）
+  P   前期のギャップ（1次速報の前に出ていた最新の公表値。ふつうは前回号の値。手法見直しの告知で
+      見直し後の値が先に出ていた回は、その値を使う＝backtest_realtime2.py の ANCHOR_NOTES、いまは2023Q1：No.1310）
   g0  前期の成長率（前期の2次速報時点）
   g1  前期の成長率（今期の1次速報時点）
   g   今期の成長率（今期の1次速報時点）
@@ -25,6 +26,7 @@ import pandas as pd
 from gapmodel import ingest as ig
 from gapmodel.vintages import load_cao_vintages
 from gapmodel.report import write_excel
+from backtest_realtime2 import ANCHOR_NOTES
 
 warnings.filterwarnings("ignore")
 ROOT = Path(__file__).resolve().parent
@@ -43,6 +45,7 @@ def growth(s, q):
 def dataset():
     issues, long = load_cao_vintages()
     cur = long[long.推計 == "今回"]
+    prv = long[long.推計 == "前回"]
     pub = lambda no, q: float(cur[cur.号 == no].set_index("期").GDPギャップ.get(q, np.nan))  # noqa: E731
     rows = []
     for t in sorted(issues[issues.速報 == "1次"].対象期.unique()):
@@ -56,6 +59,9 @@ def dataset():
             continue
         no0 = int(before.号.iloc[-1])
         y, P = pub(no1, t), pub(no0, t - 1)
+        if str(t) in ANCHOR_NOTES:  # 1次速報の前に見直し後の前期値が公表されていた回
+            no_a = ANCHOR_NOTES[str(t)][0]
+            P = float(prv[prv.号 == no_a].set_index("期").GDPギャップ.loc[t - 1])
         if np.isnan(y) or np.isnan(P):
             continue
         rows.append({"対象期": str(t), "実績": y, "P": P, "g0": growth(v0, t - 1), "g1": growth(v1, t - 1),
@@ -94,9 +100,10 @@ def main():
     # 比較用：モデルの接続値（backtest_realtime2 の結果があれば）
     f = ROOT / "results" / "backtest_realtime2_cao.xlsx"
     if f.exists():
-        A = pd.read_excel(f, sheet_name="各期")[["対象期", "A 接続（現行）"]]
+        E = "E 接続（公表前の最新値を基準）"  # モデルの接続値の主指標（2026-11-10〜）
+        A = pd.read_excel(f, sheet_name="各期")[["対象期", E]]
         B = B.merge(A, on="対象期", how="left")
-        meth.append("A 接続（現行）")
+        meth.append(E)
     rows = []
     for lab, m in [("比較できる全回", B[meth].notna().all(axis=1)),
                    ("2023年以降", B[meth].notna().all(axis=1) & (pd.PeriodIndex(B.対象期, freq="Q") >= pd.Period("2023Q1", "Q")))]:
